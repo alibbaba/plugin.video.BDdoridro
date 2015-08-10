@@ -1,10 +1,9 @@
-#borrowed from kinkin
+#borrowed from kinkin(Thanks)
 import xbmc, xbmcaddon, xbmcgui, xbmcplugin
 import os
 
 ADDON = xbmcaddon.Addon(id='plugin.video.BDdoridro')
 DATA_PATH = os.path.join(xbmc.translatePath('special://profile/addon_data/plugin.video.BDdoridro'), '')
-FTV_PATH = xbmc.translatePath(os.path.join('special://home/addons/plugin.video.BDdoridro', ''))
 
 def addon():
     return ADDON
@@ -17,7 +16,7 @@ def doridro_pass():
 
 
 def cookie_jar():
-    return create_file(FTV_PATH, "cookiejar.lwp")
+    return create_file(DATA_PATH, "cookiejar.lwp")
 	
 def create_file(dir_path, file_name=None):
     if file_name:

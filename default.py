@@ -6,7 +6,8 @@ import xbmcgui
 import xbmcplugin,xbmcvfs
 import xbmcaddon,xbmc,os
 import urllib
-import urllib2,requests
+import urllib2
+import requests
 import re
 import settings
 import time
@@ -17,7 +18,7 @@ except:
     import simplejson as json
 from urllib import FancyURLopener
 from bs4 import BeautifulSoup
-import httplib2
+#import httplib2
 import cPickle as pickle
 headers=dict({'User-Agent': 'Mozilla/5.0 (Windows NT 6.3; rv:32.0) Gecko/20100101 Firefox/32.0'})
 
@@ -30,9 +31,9 @@ cacheDir = os.path.join( addonUserDataFolder, 'cache')
 clean_cache=os.path.join(cacheDir,'cleancacheafter1month')
 logos = None
 profile = xbmc.translatePath(addon.getAddonInfo('profile').decode('utf-8'))
-cookie_jar = settings.cookie_jar()
 Doridro_USER = settings.doridro_user()
 Doridro_PASSWORD = settings.doridro_pass()
+cookie_jar = settings.cookie_jar()
 #http://www.moviesfair24.com/category/natok-telefilm-bangla/
 if not cacheDir.startswith(('smb://', 'nfs://', 'upnp://', 'ftp://')) and not os.path.isdir(cacheDir)== 1 :
     os.mkdir(cacheDir)
@@ -52,8 +53,8 @@ if xbmcvfs.exists(clean_cache):
 else:
     with open(clean_cache,'w') as f:
         f.write('')
-h = httplib2.Http(cacheDir)
-
+#h = httplib2.Http(cacheDir)
+forum_url = "http://doridro.com/forum/viewforum.php?f={0}"
 xbmcplugin.setContent(handle, 'movies')
 def ensure_dir():
     print 'creating dir'
@@ -150,10 +151,43 @@ def check_login(source,username):
         return True
     else:
         return False
+def down_url(url,filename=None):
+    print 'found download path::', addon.getSetting('download_path')
+    if addon.getSetting('download_path') == '':
+            addon.openSettings()
+    get_file_name = url.split('/')[-1]
+    file_name = os.path.join(addon.getSetting('download_path').encode('utf-8'),get_file_name)
+    pDialog = xbmcgui.DialogProgress()
+    #pDialog = xbmcgui.DialogProgressBG()
+    pDialog.create('Downloading ......', 'File to download: %s ...' %get_file_name)
+    size = 0
+    block_sz = 8192
+    req = urllib2.Request(url,None,headers)
+    song = urllib2.urlopen(req)
+    meta = song.info()
+    file_size = int(meta.getheaders("Content-Length")[0])
+    print "Downloading: %s Bytes: %s" % (file_name, file_size)
+    with open(file_name, 'wb') as f:    
+        while True:
+            buffer = song.read(block_sz)
+            if not buffer:
+                break
 
+            size += len(buffer)
+            f.write(buffer)
+            #status = r"%10d  [%3.2f%%]" % (size, size * 100. / file_size)
+            #status = r"%3.2f%%" % (size * 100. / file_size)
+            #status = status + chr(8)*(len(status)+1)
+            #print status
+            pDialog.update(int(size * 100. / file_size),'Download progressing...Will be SaveTo:\n%s' %file_name)
+    pDialog.close()
 def _login():
+    if Doridro_USER == '' :
+        return
+    
+
     if os.path.exists(cookie_jar) and (time.time()-os.path.getmtime(cookie_jar) < 60*60*24) and os.path.getsize(cookie_jar) > 5:
-        notification('Already Logged IN','Logged In to doridro.Com as %s ::.'%Doridro_USER,2000)
+        #notification('Already Logged IN','Logged In to doridro.Com as %s ::.'%Doridro_USER,2000)
         print 'Logged in for A day'
     else:
         session = requests.Session()
@@ -198,12 +232,16 @@ def get_soup(url,content=None,ref=None,post=None,mobile=False):
 
 
 def CATEGORIES(name):
-    addDir("Natok & Telefilms", 'http://doridro.com/forum/viewforum.php?f=155',155,'','')
-    addDir("Bangla Movies", 'http://doridro.com/forum/viewforum.php?f=106',106,'','')
+    if not Doridro_USER == '' :
+        _login()
+        addDir("Natok & Telefilms", '155',3,'','')
+        addDir("Bangla Movies", '106',3,'','')
+        addDir("Music[Download ONLY]", '166',3,'','')
+        addDir("Kolkutta Music[Download ONLY]", '192',3,'','')
     addDir("Live TV", 'http://www.jagobd.com/category/bangla-tv',1,'','')
     #addDir("Drama Serials", 'http://doridro.com/forum/viewforum.php?f=99',99,'','')
 
-    #addDir("Music", 'http://doridro.com/forum/viewforum.php?f=166',99,'','')
+    
 
 
 
@@ -230,21 +268,39 @@ def LiveBanglaTV(url):
         #print u
         xbmcplugin.addDirectoryItem(handle, u, liz, True)
 def playlive(url,name):
+    embed_url_pat = 'http://www.tv.jagobd.com/embed.php?u={0}&amp;vw=100%&amp;vh=400'
+
     content,new = cache(url,duration=3)
-    soup = get_soup('',content=content)
-    embed_url=soup('div', {'class':"stremb"})[0]('a')[0].get('href')
-    #embed_url=soup('area', {'shape':"rect"}).get('href')
-    print 'the embed_url',embed_url
-    if addon.getSetting('typeofstream') == 0:
-        final_url = 'http://' + livetv(embed_url,ref=url)
-    else:
-        final_url = livetv(embed_url,ref=url)
+    
+    match = re.compile(r'''jagobd\.com/embed\.php\?u=([^&]+)''',re.DOTALL).findall(content)
+    print match
+    if len(match) > 1 :
+        dialog = xbmcgui.Dialog()
+        index = dialog.select('Choose a video source', match)
+        if index >= 0:
+            print 'index choosen', str(index),match[1]
+            
+            final_url = livetv(embed_url_pat.format(match[index]),ref=url)
+        else:
+            return
+    else :
+        final_url = livetv(embed_url_pat.format(match[0]),ref=url)
+    #soup = get_soup('',content=content)
+    #embed_url=soup('div', {'class':"stremb"})[0]('a')[0].get('href')
+    ##embed_url=soup('area', {'shape':"rect"}).get('href')
+    #print 'the embed_url',embed_url
+    #if addon.getSetting('typeofstream') == 0:
+    #    final_url = 'http://' + livetv(embed_url,ref=url)
+    #else:
+    #    final_url = livetv(embed_url,ref=url)
     #play_url = makeRequest(final_url,mobile=True,ref=url)
     if not final_url == 'None':
         listitem = xbmcgui.ListItem(name)
         listitem.setInfo(type='Video', infoLabels={'Title':name})
         xbmc.Player().play(final_url,listitem)
 def livetv(embed_url,ref=None):
+    token1 = '%xqdrde(nKa@#.'
+    token2 = '%pwrter(nKa@#.'
     soup = get_soup(embed_url,ref=ref)
     l=soup('script', {'type':'text/javascript'})
     #l= soup('a' ,target=re.compile('ifra'))
@@ -258,7 +314,7 @@ def livetv(embed_url,ref=None):
                 rtmp = m[0][2].encode('utf-8')
                 playpath = m[0][1].encode('utf-8')
                 swfurl = m[0][0].encode('utf-8')
-                play_url = rtmp + ' timeout=15 token=%xqdrde(nKa@#. live=1 playpath=' + playpath +' swfUrl='+swfurl+' pageurl='+embed_url
+                play_url = rtmp + ' timeout=15 token=%pwrter(nKa@#. live=1 playpath=' + playpath +' swfUrl='+swfurl+' pageurl='+embed_url
 
                 return play_url
             else:
@@ -290,7 +346,7 @@ def _______livetv(embed_url,ref=None):
     #            return None
 
 
-def BMovies(url):
+def __outdatedBMovies(url):
         pDialog = xbmcgui.DialogProgress()
         pDialog.create('Getting Bangla Movies', 'Wait While getting info ...')
         #pDialog.close()
@@ -350,7 +406,8 @@ def natok(url):
         pDialog = xbmcgui.DialogProgress()
         pDialog.create('Getting Natok', 'Downloading Natok with image ...')
         #pDialog.close()
-        content,new = cache(url, duration=2)
+        uurl = forum_url.format(url)
+        content,new = cache(uurl, duration=2)
         print len(content)
         soup = get_soup('',content=content)
         #soup = get_soup(url)
@@ -390,7 +447,7 @@ def natok(url):
 
             liz=xbmcgui.ListItem(name)
             liz.setInfo( type="Video", infoLabels={ "Title": name})
-            liz.setMimeType('mkv')
+            #liz.setMimeType('mkv')
             liz.setArt({ 'thumb': thumb_from_folder, 'fanart' : thumb_from_folder })
             liz.setIconImage(thumb_from_folder)
             #print 'name to pass to videolinks', name
@@ -402,6 +459,19 @@ def natok(url):
         #xbmcplugin.endOfDirectory(handle)
 
             #xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]),url=u,listitem=liz,isFolder=True )
+def solve_fileshare_url(link):
+
+    extracted_url = ''
+    if 'indishare' in link or 'bdupload' in link:
+        extracted_url = indishare(link)
+    elif 'uptobox' in link:
+        extracted_url = uptobox(link)
+    elif 'seenupload' in link:
+        extracted_url = seenupload(link,url)
+    elif 'uppit' in link:
+        extracted_url = uppit(link,url)
+    print 'extracted_url for :', link,extracted_url
+    return extracted_url
 def get_response(url):
     print url
     #net.set_cookies(cookie_jar)
@@ -443,63 +513,107 @@ def morelinks(name,url):
          xbmc.Player(xbmc.PLAYER_CORE_AUTO).play(playlist)
 
 def getVideolinks(name,url):
-    pDialog = xbmcgui.DialogProgress()
-    pDialog.create('Getting Videos link', 'Please wait ...')
-    content,new = cache(url,duration=3,need_cookie='login')
-    l = re.compile(r'''a\s*class="postlink"\s*href="([^"]+)''',re.DOTALL).findall(content)
+    music = False
+    if 'f=166' in url or 'f=192' in url:
+        music = True
+        pDialog = xbmcgui.DialogProgress()
+        pDialog.create('Getting Music links', 'Please wait ...')
+    else:
+        pDialog = xbmcgui.DialogProgress()
+        pDialog.create('Getting Video links', 'Please wait ...')    
+    content,new = cache(url,duration=1,need_cookie='login') 
+    #allsources = re.compile(r'''class="postlink"\s*[href=]?.*?(https?://[^<"]+)''',re.DOTALL).findall(content)
+    allsources = re.compile(r'''class="postlink"\s*[href=]?.*?[<|"](https?://[^<"]+)''',re.DOTALL).findall(content)
+    #l = re.compile(r'''a\s*class="postlink"\s*href="([^"]+)''',re.DOTALL).findall(content)
+    #l = re.compile(r'''rel="nofollow"\s*onclick="this\.target='_blank';">(.*?)</a>''',re.DOTALL).findall(content)
     #soup = BeautifulSoup(content,'html.parser')
     #l = soup('a',{'class': 'postlink'})
-    print len(l)
-    print l
+    print len(allsources)
+    print allsources
+    #return
     playlist = xbmc.PlayList(xbmc.PLAYLIST_VIDEO)
     playlist.clear()
     domains = ['seenupload','uptobox','share.jong.li','indishare','uppit','bdupload']
     final_url = []
-    if len(l) >0:
-        for link in l:
-            #link = href.get('href')
-            print link
-            if any (s in link for s in domains):
-                #link = href
-                #if 'arabload' in link:
-                #    print 'NOOOOOOOOO Arabload support'
-                #    continue
-                if 'jong' in link:
-                    extracted_url = jongli(link,ref=url)
-                elif 'indishare' in link or 'bdupload' in link:
-                    extracted_url = indishare(link)
-                elif 'uptobox' in link:
-                    extracted_url = uptobox(link)
-                elif 'seenupload' in link:
-                    extracted_url = seenupload(link,url)
-                elif 'uppit' in link:
-                    extracted_url = uppit(link,url)
-                if extracted_url:
+    tracks=[]
+    if len(allsources) >1:
+        for i in allsources:
+            if music :
+                import urlparse
+                d_name= '[' + urlparse.urlparse(i).netloc + '] ' +   urllib.unquote_plus(i.split('/')[-1])
+                #if d_name == '':
+                #if d_name == '':
+                #    tracks.append(name)
+                #else:
+                tracks.append(d_name)            
+            elif 'share.jong.li' in i :
+                print 'share.jong.li found'
+                extracted_url = jongli(i,ref=url)
+                print extracted_url
+                if extracted_url :
                     final_url.append(extracted_url)
-                    break
-
+                else:
+                    continue
+            elif not any(x in i for x in domains):
+                
+                allsources.remove(i)
+                #import urlparse
+                #
+                #
+                #d_name=urlparse.urlparse(i).netloc
+                #if d_name == '':
+                #    names.append(name)
+                #else:
+                #    names.append(d_name)
             else:
+                
                 continue
-        print 'final_url',final_url
+        print 'url list now:::',allsources
         if len(final_url) >0:
+            print final_url
             for stream in final_url:
-                if not 'rar' in stream:
+                if not 'rar' in stream or not 'zip' in stream:
                     info = xbmcgui.ListItem('%s' %name)
                     playlist.add(stream, info)
-            xbmc.Player().play(playlist)
+            xbmc.Player().play(playlist)        
+        
+        elif len(tracks) >0 :
+            dialog = xbmcgui.Dialog()
+            index = dialog.select('Choose a video source', tracks)
+            if index >= 0:
+                if 'share.jong.li' in tracks[index] :
+                #print 'share.jong.li found'
+                    extracted_url = jongli(allsources[index],ref=url)
+                else:
+                    extracted_url = solve_fileshare_url(allsources[index])
+                if len(extracted_url) >0:
+                    down_url(extracted_url)
+                
+                #xbmc.Player().play(extracted_url)            
+        
         else:
-            notification("failed to Play", "[COLOR yellow]Failed to extract video links[/COLOR]", sleep=1000)
+            dialog = xbmcgui.Dialog()
+            index = dialog.select('Choose a video source', allsources)
+            if index >= 0:
+                extracted_url = solve_fileshare_url(allsources[index])
+                #if len(extracted_url) >0:
+                xbmc.Player().play(extracted_url)
+        #    notification("failed to Play", "[COLOR yellow]Failed to extract video links[/COLOR]", sleep=1000)
 
     else:
         notification("NO Link found", "[COLOR yellow]There is no video for this link[/COLOR]", sleep=1000)
 def jongli(link,ref=None):
-    soup = get_soup(link,ref=url)
+    content,new = cache(link,duration=2,ref=url)
     #print soup
-    l= soup('a',{'href': True})[0].get('href')
+    print new
+    match = re.compile(r'''<a\s*href="(\S+)">Click here to download''',re.DOTALL).findall(content)   
+    print 'match found for jongli',match
+    if match :
     #print len(l),l
-    return l
-    #if l:
-        #xbmc.Player().play(l)
+        return match[0]
+    else:
+        return
+
 def uppit(link,ref=None): #http://uppit.com/53lbeaylge7m/Bojhena_Se_Bojhena_&
     idd = link.rsplit('/',2)
     print idd
@@ -571,21 +685,139 @@ def makeRequest(url,referer=None,post=None,body={},mobile=False):
         data = response.read()
         response.close()
         return data
+'''def cache(url, duration=0,post=None,other_head='',body={},ref=None,getcookie=None,need_cookie=None,save_cookie=None,build_soup=None,debug=False,repeat=1,mobile='',content_type=''):
+    UAhead=dict({'User-Agent': 'Mozilla/5.0 (Windows NT 6.3; rv:32.0) Gecko/20100101 Firefox/32.0'})
+    headers=dict({'User-Agent': 'Mozilla/5.0 (Windows NT 6.3; rv:32.0) Gecko/20100101 Firefox/32.0'})
+    print 'caching url ___ for ___',url,str(duration)
 
-def cache(url, duration=0,post=None,body={},need_cookie=None):
+    #if addon.getSetting('nocache') == 'true':
+    #    duration = 0
+    new = 'true'
+    #url = url.encode('utf-8')  DONOT DONOT ENCODE
+    if mobile:
+        #if len(mobile) >5 :
+        #    headers.update({'User-Agent': mobile})
+        #else:
+        if mobile == "Android":
+            headers.update({'User-Agent': Android_UA})
+            UAhead.update({'User-Agent': Android_UA})
+        else:
+            headers.update({'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 6_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/6.0 Mobile/10A405 Safari/8536.25'})
+            UAhead.update({'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 6_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/6.0 Mobile/10A405 Safari/8536.25'})
+
+    if other_head :
+        import ast
+
+        other_head = ast.literal_eval(other_head)
+        headers2 ={}
+        headers2= dict(merge_2_dict(UAhead,other_head))
+        headers = headers2
+    if ref:
+        headers.update({'Referer': '%s'%ref})
+    #else:
+    #    headers.update({'Referer': '%s'%url})
+    if len(body) > 1:
+        f_name_posturl = url + json.dumps(body)
+        cacheFile = os.path.join(cacheDir,''.join(c for c in unicode(f_name_posturl, 'utf-8') if c not in '/\\:?"*|<>')[:150].strip())
+    else:
+        cacheFile = os.path.join(cacheDir,''.join(c for c in unicode(url.encode('utf-8'), 'utf-8') if c not in '/\\:?"*|<>')[:150].strip())
+    if need_cookie:
+        cookie_jar = os.path.join(cookie_file, '%s' %need_cookie) #need cookie is cookie file name that had
+        if xbmcvfs.exists(cookie_jar):                                                        # had saved befor
+            with open( cookie_jar, "rb") as f:
+                cookiess = pickle.load(f)
+        else:
+            cookiess = need_cookie
+            # if xbmcvfs.exists(xbmc.translatePath(DL_DonorPath))
+    #if xbmcvfs.exists(cacheFile): #and duration!=0 and (time.time()-os.path.getmtime(cacheFile) < 60*60*24*duration):
+     #  print 'getting from Caaaaaaaaaaaache duration' , str(duration)
+
+    #for i in range(repeat): # if range is 1 loop through once #
+    #if xbmcvfs.exists(os.path.join(cacheDir,cacheFile)):
+     #   print get_file_age(duration,cacheFile)
+    if os.path.isfile(cacheFile) and duration!=0  and  (time.time()-os.path.getmtime(cacheFile) < 60*60*24*duration) and addon.getSetting('disableallcache') == 'false':
+        print 'getting from Cache duration:There are no new content' #, str(get_file_age(duration,cacheFile))
+        fh = xbmcvfs.File(cacheFile, 'r')
+        content = fh.read()
+        fh.close()
+        new = 'false'
+        return content,new
+    elif post and need_cookie:
+
+        r = requests.post(url,data=body,cookies=cookiess,headers=headers,verify=False)
+    elif post:
+
+        r = requests.post(url,data=body,headers=headers,verify=False)
+    elif need_cookie:
+        r = requests.get(url,cookies=cookiess,headers=headers,verify=False)
+
+    else:
+        #print headers
+        r = requests.get(url,headers=headers,verify=False)
+
+    #if not r.raise_for_status() :
+    try:
+        #if r.headers['Content-Type'] == 'application/json':
+        #    print 'Json type content found'
+        #    content = r.json()
+        #else:
+            content = r.text
+    except Exception:
+        print '+++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+        print 'debug for the url:%s' %url
+        print 'status_code:',r.status_code
+        print 'Response Headers server sent::',r.headers
+        print 'Header sent to server:',r.request.headers
+        print 'The cookies are:',r.headers['set-cookie']
+        print '========================================================='
+        return None
+    if duration != 0:
+        fh = xbmcvfs.File(os.path.join(cacheDir,cacheFile), 'w')
+        fh.write(str(removeNonAscii(content))) #problem to save ilive : add str
+        fh.close()
+    if save_cookie:
+        #print r
+        Cookie =  r.cookies.get_dict()      #str(r.headers['set-cookie'])
+        if len(Cookie) < 1:
+            print 'Saving cookie failed, see debug below'
+            debug = True
+        print 'saving cookies for iiiiiiiiiiiiiii',Cookie
+            #notification('Login Succes','Succesfully loged_in to doridro.Com as %s ::.'%Doridro_USER,2000)
+            #return r.cookies
+        cookie_jar = os.path.join(cookie_file, '%s' %save_cookie)
+        with open( cookie_jar, "wb" ) as ff:
+            pickle.dump( Cookie, ff )
+            ff.close()
+        new = Cookie
+    if debug:
+        print '+++++++++++++++++++++++++++++++++++++++++++++++++++++++'
+        print 'debug for the url:%s' %url
+        print 'status_code:',r.status_code
+        print 'Response Headers server sent::',r.headers
+        print 'Header sent to server:',r.request.headers
+        print 'The cookies are:',r.headers['set-cookie']
+        print '========================================================='
+    if build_soup:
+        content = get_soup('',content)
+    if getcookie:
+        new = r.headers['set-cookie']
+    return content,new'''
+def cache(url, duration=0,ref=None,post=None,body={},need_cookie=None):
     if addon.getSetting('nocache') == 'true':
         duration = 0
     new = 'true'
-    url = url.encode('utf-8')
+    #url = url.encode('utf-8')
     if len(body) > 1:
         f_name_posturl = url + json.dumps(body)
-        cacheFile = os.path.join(cacheDir, (''.join(c for c in unicode(f_name_posturl, 'utf-8') if c not in '/\\:?"*|<>')).strip())
+        cacheFile = os.path.join(cacheDir,''.join(c for c in unicode(f_name_posturl.encode('utf-8','ignore'), 'utf-8') if c not in '/\\:?"*|<>')[:150].strip())
     else:
-        cacheFile = os.path.join(cacheDir, (''.join(c for c in unicode(url, 'utf-8') if c not in '/\\:?"*|<>')).strip())
+        cacheFile = os.path.join(cacheDir,''.join(c for c in unicode(url.encode('utf-8'), 'utf-8') if c not in '/\\:?"*|<>')[:150].strip())
     if need_cookie:
         #getcookiefile = os.path.join(cookie_jar, '%s' %need_cookie)
         with open( cookie_jar, "rb") as f:
             cookiess = pickle.load(f)
+    if ref:
+        headers.update({'Referer': '%s'%ref})
     if os.path.exists(cacheFile) and duration!=0 and (time.time()-os.path.getmtime(cacheFile) < 60*60*24*duration):
         fh = xbmcvfs.File(cacheFile, 'r')
         content = fh.read()
@@ -614,59 +846,44 @@ def cache(url, duration=0,post=None,body={},need_cookie=None):
     fh.close()
     return content,new
 def indishare(url): #limit of 120 minutes/day
+    pDialog = xbmcgui.DialogProgress()
+    pDialog.create('Extracting Idishare Link ......', 'Pleas wait:  ...' )
     id = url.split('/')
     id = id[-1]
     content,new = cache(url, duration=1) #cache(url, duration=0,post=None,body={},need_login=None)
     soup = get_soup('',content=content)
+    WAIT_PAT = r'>(\d+)</span> seconds<'
+    match = re.search(WAIT_PAT,content)
+    if match:
+        wait_for = match.group(1)
+        pDialog.create('Extracting Idishare Link ......', 'Pleas wait for %s:  ...' %wait_for )
+        xbmc.sleep(int(wait_for)*1000)
+    #id="countdown_str">Wait.*?>(\d+).*?seconds
     print 'indishare soup',len(soup)
     ran_value= soup('input',{'name': 'rand'})[0].get('value')
 
-    print ran_value
     body = dict(op="download2",id=id,rand=ran_value,down_script='1')
-    if new =='true' :
+    content,new = cache(url,1,post = 'post',body=body)
 
-        #soup = get_soup(url)
-
-        pDialog = xbmcgui.DialogProgress()
-
-        if 'bdupload' in url:
-            pDialog.create('Bdupload', 'Need to wait 15s ...')
-            xbmc.sleep(15000)
-            q= '''http://.*?\.indifiles\.com'''
-        else:
-            pDialog.create('Indishare', 'Need to wait 10s ...')
-            xbmc.sleep(5000)
-            q= '''http://.*?\.indiworlds\.com'''
-        pDialog.close()
-    content,new = cache(url,1,'post',body)
-    #r = requests.post(url,data=body,headers=headers,verify=False)
-    #print r.request.headers
-    #resp, content = h.request(url, "POST", body=urllib.urlencode(data))
-    if 'bdupload' in url:
-        q= '''http://.*?\.indifiles\.com'''
-    else:
-        q= '''http://.*?\.indiworlds\.com'''
-    soup = get_soup('',content=content)
-
-
-    #soup = BeautifulSoup(content)
-    href = urllib.quote(soup(href=re.compile(q))[0].get('href'),':/')
-    print len(href),href
-    return href
+    href = re.compile(r'<a\s*href="(http://[\w]+\.indi(?:file|world)s\.com[^">]+)',re.DOTALL).findall(content)[0]
+    #print len(href),href
+    pDialog.close()
+    return href.replace(' ','%20')
 def uptobox(url): #limit of 120 minutes/day # Not every link uptostream
-    content,new = cache(url,duration=1)
+    content,new = cache(url,duration=0.5)
     #url2 = url.replace('uptobox','uptostream')
     print len(content)
     form_values = {}
     for i in re.finditer('<input.*?name="(.*?)".*?value="(.*?)">', content):
         form_values[i.group(1)] = i.group(2)
-    #resp, content = h.request(url,"POST",headers=headers,body=form_values)   #print l
     headers.update({'Referer':url})
+    WAIT_PAT = r'>(\d+)</span> seconds<'
     content = requests.post(url,data=form_values,headers=headers)
-    streamurl = re.compile('''align="center">.*?<a\s*href="([^"]+)"''',re.DOTALL).findall(content.text)[0]
+    streamurl = re.compile(r'''DOWNLOAD\s*BUTTON.*?(https?://\w+\.uptobox\.com/d/.*?)">''',re.DOTALL).findall(content.text)[0]
 
     print 'playing:uptobox:',streamurl
-    streamurl = urllib.quote(streamurl)
+    #streamurl = urllib.quote_plus(streamurl)
+    return streamurl.replace(' ','%20')
 
 def notification(header="", message="", sleep=3000):
     """ Will display a notification dialog with the specified header and message,
@@ -749,17 +966,33 @@ except:
 
 
 if mode==None:
-        _login()
+        #_login()
         CATEGORIES(name)
         xbmcplugin.endOfDirectory(handle)
-elif mode==155:
+elif mode==1:
+    LiveBanglaTV(url)
+    xbmcplugin.endOfDirectory(handle)
+
+elif mode==2:
+    playlive(url,name)      
+elif mode==3:
     print ('gettting Natok')
     natok(url)
     xbmcplugin.endOfDirectory(handle)
-elif mode==106:
-    print ('gettting Movies')
-    BMovies(url)
-    xbmcplugin.endOfDirectory(handle)
+elif mode==4:
+    print ('gettting musiclinks')
+    getVideolinks(name,url,'music')
+elif mode==5:
+    print ('gettting videolinks')
+    getVideolinks(name,url)
+    #xbmcplugin.endOfDirectory(handle)
+elif mode==7:
+    print ('playin')
+    morelinks(name,url)    
+#elif mode==106:
+#    print ('gettting Movies')
+#    BMovies(url)
+#    xbmcplugin.endOfDirectory(handle)
 elif mode==99:
     print ('gettting Dramaserials')
     Dramaserials(url)
@@ -769,16 +1002,5 @@ elif mode==6:
     getmultiplelinks(url)
     xbmcplugin.endOfDirectory(handle)
 
-elif mode==5:
-    print ('gettting videolinks')
-    getVideolinks(name,url)
-    #xbmcplugin.endOfDirectory(handle)
-elif mode==7:
-    print ('playin')
-    morelinks(name,url)
-elif mode==1:
-    LiveBanglaTV(url)
-    xbmcplugin.endOfDirectory(handle)
 
-elif mode==2:
-    playlive(url,name)
+

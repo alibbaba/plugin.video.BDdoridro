@@ -2,6 +2,10 @@
 <addon id="plugin.video.BDdoridro" name="BD VOD doridro" version="1.0.1" provider-name="UNKNOWN">
   <requires>
     <import addon="xbmc.python" version="2.1.0"/>
+    <import addon="script.module.requests" />
+	<import addon="script.module.beautifulsoup4" />
+	<import addon="script.module.urlresolver" optional="true"/>
+
   </requires>
   <extension point="xbmc.python.pluginsource" library="default.py">
     <provides>video</provides>
