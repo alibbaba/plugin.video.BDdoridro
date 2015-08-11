@@ -29,6 +29,7 @@ handle = int(sys.argv[1])
 logopath = os.path.join( addonUserDataFolder, 'logos')
 cacheDir = os.path.join( addonUserDataFolder, 'cache')
 clean_cache=os.path.join(cacheDir,'cleancacheafter1month')
+metadata_uls=os.path.join(cacheDir,'metadata_uls.txt')
 logos = None
 profile = xbmc.translatePath(addon.getAddonInfo('profile').decode('utf-8'))
 Doridro_USER = settings.doridro_user()
@@ -41,18 +42,18 @@ if not cacheDir.startswith(('smb://', 'nfs://', 'upnp://', 'ftp://')) and not os
 
 if not logopath.startswith(('smb://', 'nfs://', 'upnp://', 'ftp://')) and not os.path.isdir(logopath)== 1 :
     os.mkdir(logopath)
-if xbmcvfs.exists(clean_cache):
-    if int(time.time()-os.path.getmtime(clean_cache)) >  300 :#300 is 1 month      #60*60*24*30):
-        print 'time of creation of ff',str(time.time()-os.path.getmtime(clean_cache))
-        import shutil
-        shutil.rmtree(cacheDir)
-        shutil.rmtree(logopath)
-        #notification("Cache Cleared","old cache cleared")
-        os.mkdir(logopath)
-        os.mkdir(cacheDir)
-else:
-    with open(clean_cache,'w') as f:
-        f.write('')
+#if xbmcvfs.exists(clean_cache):
+#    if int(time.time()-os.path.getmtime(clean_cache)) >  300 :#300 is 1 month      #60*60*24*30):
+#        print 'time of creation of ff',str(time.time()-os.path.getmtime(clean_cache))
+#        import shutil
+#        shutil.rmtree(cacheDir)
+#        shutil.rmtree(logopath)
+#        #notification("Cache Cleared","old cache cleared")
+#        os.mkdir(logopath)
+#        os.mkdir(cacheDir)
+#else:
+#    with open(clean_cache,'w') as f:
+#        f.write('')
 #h = httplib2.Http(cacheDir)
 forum_url = "http://doridro.com/forum/viewforum.php?f={0}"
 xbmcplugin.setContent(handle, 'movies')
@@ -90,12 +91,47 @@ def getCookieJar(cookie_jar):
         cookieJar = cookielib.LWPCookieJar()
 
     return cookieJar
+    
+def get_thumb(title):
+    
+    
+    if os.path.exists(metadata_uls):
+        content = open(metadata_uls).read()
+        #print content
+        pat = r'%s:(\S+)' %re.escape(title)
+        print pat
+        if title in content:
+            print '{0} ::title found in the file '.format(title)
+            match = re.compile(pat,re.DOTALL).findall(content)
+            print match
+            return match[0]
+        #thumb = re.search(metadataurl,content)
+        else:
+            imgurl = google_image(title)
+            
+            if imgurl :
+                metadataurl = title +':' + imgurl + '\n'
+                with open (metadata_uls, 'a') as f :
+                   f.write(metadataurl)
+                return imgurl
+            else:
+                return 'ignore'
+    else:
+        print 'making new metadata file'
+        imgurl = google_image(title)
+        if imgurl :
+            metadataurl = title +':' + imgurl + '\n'
+            with open (metadata_uls, 'w') as f :
+               f.write(metadataurl)
+            return imgurl
+        else:
+            return 'ignore'
 def google_image(title):
     #ensure_dir()
     searchTerm = title
 
     # Replace spaces ' ' in search term for '%20' in order to comply with request
-    searchTerm = urllib.quote(searchTerm)
+    searchTerm = urllib.quote(searchTerm).replace('%20','+')
     # Start FancyURLopener with defined version
     myopener = MyOpener()
 
@@ -106,16 +142,18 @@ def google_image(title):
         # Notice that the start changes for each iteration in order to request a new set of images for each loop as_filetype=png as_sitesearch=photobucket.com rsz=4
         url = ('https://ajax.googleapis.com/ajax/services/search/images?' + 'v=1.0&q='+searchTerm+'&start='+str(i*4)+'&userip=MyIP&as_sitesearch=http://doridro.com/forum/')
         print url
-        res, data = h.request(url,"GET",headers=headers)
-        if not res.status == 200 :
+        res,new = cache(url,duration=1)
+        
+        if not res :
             print 'No image found for :%s' %title
             return
-        results = json.loads(data)
+        results = json.loads(res)
         data = results['responseData']['results']
-        t_results = results['responseData']['cursor']['estimatedResultCount']
-        print t_results
-        thum_list = []
-        if not t_results == None:
+        if data:
+        #t_results = results['responseData']['cursor']['estimatedResultCount']
+        #print t_results
+        #thum_list = []
+        #if not t_results == None:
             #print myUrl['unescapedUrl']
             for i in range(2):
                 try:
@@ -124,15 +162,16 @@ def google_image(title):
                     file_ext = ['jpg','jpeg','png','JPG','JPEG']
                     if any(x in thumb_url for x in file_ext):
                         print thumb_url
-                        url_ext = thumb_url.rsplit('.',1)
-                        print url_ext
-                        title = title.encode('utf-8')
-                        print title
-                        #l=os.path.join(logopath, title  + str(count)+'.JPG')
-                        l=os.path.join(logopath, title  +'.'+url_ext[1])
-                        th= urllib.urlretrieve(thumb_url,l) # to download the file
+                        
+                        #url_ext = thumb_url.rsplit('.',1)
+                        #print url_ext
+                        #title = title.encode('utf-8')
+                        #print title
+                        ##l=os.path.join(logopath, title  + str(count)+'.JPG')
+                        #l=os.path.join(logopath, title  +'.'+url_ext[1])
+                        #th= urllib.urlretrieve(thumb_url,l) # to download the file
 
-                        return l
+                        return thumb_url
                     else:
                         count = count + 1
                         continue
@@ -327,78 +366,8 @@ def _______livetv(embed_url,ref=None):
     final_url = re.compile('http://(.*)',re.DOTALL).findall(soup.text)[0]
     print final_url
     return final_url
-    #l=soup('script', {'type':'text/javascript'})
-    ##l= soup('a' ,target=re.compile('ifra'))
-    #print l
-    #for data in l:
-    #    if 'SWFObject' in data.text:
-    #        #print data.text
-    #        m = re.compile(r'''SWFObject[\(',"]+(.*?)[\(',"]+.*?[\(',"]+file[\(',"]+(.*?)[\(',"]+.*?'streamer[\(',"]+(.*?)[\(',"]+''',re.DOTALL).findall(data.text)
-    #        print m
-    #        if  not m[0][2] == 'None' :
-    #            rtmp = m[0][2].encode('utf-8')
-    #            playpath = m[0][1].encode('utf-8')
-    #            swfurl = m[0][0].encode('utf-8')
-    #            play_url = rtmp + ' timeout=15 token=%bedcsd(nKa@#. flashVer=WIN\\2015,0,0,167 live=1 playpath=' + playpath +' swfUrl='+swfurl+' pageurl='+embed_url
-    #
-    #            return play_url
-    #        else:
-    #            return None
 
 
-def __outdatedBMovies(url):
-        pDialog = xbmcgui.DialogProgress()
-        pDialog.create('Getting Bangla Movies', 'Wait While getting info ...')
-        #pDialog.close()
-        content,new = cache(url, duration=2)
-        print len(content)
-        soup = get_soup('',content=content)
-        #soup = get_soup(url)
-        l = soup('a' ,{'class':'topictitle'})[9:70]
-        print len(l)
-        match=[]
-        count = 0
-        for i in l:
-            href1 = i.get('href').split('&sid=')[0]
-            #print href1
-            #href = re.compile(r'''(.*?)&amp;sid=''',re.DOTALL).findall(href1)
-            #print href
-            name = removeNonAscii(i.text).encode('utf-8','ignore')
-            tab= href1.replace('&amp;','&').replace('./','')
-            url= 'http://doridro.com/forum/' + tab
-            thumb_from_folderjpg = os.path.join(logopath,name+'.JPG')
-            thumb_from_folderpng = os.path.join(logopath,name+'.png')
-            if addon.getSetting('metadata') == 'true' :
-                try:
-
-                    if os.path.isfile(thumb_from_folderjpg):
-                        thumb_from_folder = thumb_from_folderjpg
-                        #print 'thumb found from folder'
-
-                    elif os.path.isfile(thumb_from_folderpng):
-                        thumb_from_folder = thumb_from_folderpng
-
-                    else:
-                        #print ('getting image from folder using google image search')
-                        thumb_from_folder = google_image(name)
-                except:
-                    print 'No image'
-                    thumb_from_folder = ''
-            else:
-                thumb_from_folder = ''
-            count += 1
-            pDialog.update(int(count*1.6), 'Downloading: %s  ...' %name)
-
-            liz=xbmcgui.ListItem(name)
-            liz.setInfo( type="Video", infoLabels={ "Title": name})
-            liz.setMimeType('mkv')
-            liz.setArt({ 'thumb': thumb_from_folder, 'fanart' : thumb_from_folder })
-            liz.setIconImage(thumb_from_folder)
-            #print 'name to pass to videolinks', name
-            u = sys.argv[0] + '?mode=5' + '&url=' + urllib.quote_plus(url)\
-                + '&name=' + urllib.quote_plus(name)
-            #print u
-            xbmcplugin.addDirectoryItem(handle, u, liz, True)
 
 def removeNonAscii(s): return "".join(filter(lambda x: ord(x)<128, s))
 
@@ -426,20 +395,20 @@ def natok(url):
             thumb_from_folderjpg = os.path.join(logopath,name+'.JPG')
             thumb_from_folderpng = os.path.join(logopath,name+'.png')
             if addon.getSetting('metadata') == 'true' :
-                try:
-
-                    if os.path.isfile(thumb_from_folderjpg):
-                        thumb_from_folder = thumb_from_folderjpg
-                        #print 'thumb found from folder'
-
-                    elif os.path.isfile(thumb_from_folderpng):
-                        thumb_from_folder = thumb_from_folderpng
-
-                    else:
-                        #print ('getting image from folder using google image search')
-                        thumb_from_folder = google_image(name)
-                except:
-                    print 'No image'
+                #try:
+                    thumb_from_folder = get_thumb(name)
+                    #if os.path.isfile(thumb_from_folderjpg):
+                    #    thumb_from_folder = thumb_from_folderjpg
+                    #    #print 'thumb found from folder'
+                    #
+                    #elif os.path.isfile(thumb_from_folderpng):
+                    #    thumb_from_folder = thumb_from_folderpng
+                    #
+                    #else:
+                    #    #print ('getting image from folder using google image search')
+                    #    thumb_from_folder = google_image(name)
+                #except:
+                    #print 'No image'
             else:
                 thumb_from_folder = ''
             count += 1
